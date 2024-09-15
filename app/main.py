@@ -1,11 +1,17 @@
+import uvicorn
+import jwt
 from re import match
-from fastapi import FastAPI, Form, Cookie, Response, Header
+from fastapi import FastAPI, Form, Cookie, Response, Header, Depends, status, HTTPException
 from fastapi.responses import FileResponse
 from typing import Annotated
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, OAuth2PasswordBearer
+from datetime import datetime, timedelta
 
-from models.models import User, Feedback, UserCreate, Login_User
+from models.models import User, Feedback, UserCreate, Login_User, TrueUser
 
 app = FastAPI()
+security = HTTPBasic()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 sample_product_1 = {
     "product_id": 123,
@@ -57,29 +63,104 @@ sessions: dict = {}
 feedback_users = {}
 list_create_user = []
 
+USER_DATA = [TrueUser(**{"username": "user1", "password": "pass1"}), TrueUser(**{"username": "user2", "password": "pass2"}), TrueUser(**{"username": "admin", "password": "adminpass"})]
+
+USERS_DATA = [{"username": "admin", "password": "adminpass"}]
+# def get_user_from_db(username: str):
+#     for user in USER_DATA:
+#         if user.username == username:
+#             return user
+#     return None
+#
+#
+# def authenticate_user(credentials: HTTPBasicCredentials = Depends(security)):
+#     user = get_user_from_db(credentials.username)
+#     if user is None or user.password != credentials.password:
+#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="incorrect data")
+#     return user
+
+SECRET_KEY = "mysecretkey"
+ALGORITHM = "HS256"
+EXPIRATION_TIME = timedelta(seconds=30)
+
+
+# Функция для создания JWT токена
+def create_jwt_token(data: dict):
+    data.update({"exp": datetime.utcnow() + EXPIRATION_TIME})
+    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM) # кодируем токен, передавая в него наш словарь с тем, что мы хотим там разместить
+
+
+# Функция получения User'а по токену
+def get_user_from_token(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]) # декодируем токен
+        return payload.get("sub") # тут мы идем в полезную нагрузку JWT-токена и возвращаем утверждение о юзере (subject); обычно там еще можно взять "iss" - issuer/эмитент, или "exp" - expiration time - время 'сгорания' и другое, что мы сами туда кладем
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="The token has expired") # тут какая-то логика ошибки истечения срока действия токена
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token") #тут какая-то логика обработки ошибки декодирования токена
+
+
+# Функция для получения пользовательских данных на основе имени пользователя
+def get_user(username: str):
+    for user in USERS_DATA:
+        if user.get("username") == username:
+            return user
+    return None
+
+
+def authenticate_user(username: str, password: str) -> bool:
+    for user in USERS_DATA:
+        if user["username"] == username:
+            if user.get("username") == username and user.get("password") == password:
+                return True
+    return False
+
 
 @app.get("/")
 async def root():
-    return FileResponse("index.html")
+    return FileResponse("app/index.html")
 
 
+# роут для аутентификации; так делать не нужно, это для примера - более корректный пример в следующем уроке
 @app.post("/login")
-async def login(user: Login_User, response: Response):
-    for person in fake_db:
-        if person.username == user.username and person.password == user.password:
-            session_token = 'abc123xyz456'
-            sessions[session_token] = user
-            response.set_cookie(key="session_token", value=session_token, httponly=True)
-            return {"message": "куки установлены"}
-    return {"message": "Invalid username or password"}
+async def login(user_in: TrueUser):
+    if authenticate_user(user_in.username, user_in.password):
+        return {"access_token": create_jwt_token({"sub": user_in.username}), "token_type": "bearer"}
+    return {"error": "Invalid credentials"}
 
 
-@app.get('/login_user')
-async def user_info(session_token=Cookie()):
-    user = sessions.get(session_token)
+# защищенный роут для получения информации о пользователе
+@app.get("/protected_resource")
+async def protected_resource(current_user: str = Depends(get_user_from_token)):
+    user = get_user(current_user)
     if user:
-        return user.dict()
-    return {"message": "Unauthorized"}
+        return user
+    return {"error": "User not found"}
+
+
+# @app.get("/protected_resource/")
+# async def get_protected_resource(user: TrueUser = Depends(authenticate_user)):
+#     return {"message": "You got my secret, welcome!", "user_info": user}
+#
+#
+# @app.post("/login")
+# async def login(user: Login_User, response: Response):
+#     for person in fake_db:
+#         if person.username == user.username and person.password == user.password:
+#             session_token = 'abc123xyz456'
+#             sessions[session_token] = user
+#             response.set_cookie(key="session_token", value=session_token, httponly=True)
+#             return {"message": "куки установлены"}
+#     return {"message": "Invalid username or password"}
+#
+#
+# @app.get('/login_user')
+# async def login_user(session_token=Cookie()):
+#     user = sessions.get(session_token)
+#     if user:
+#         return user.dict()
+#     return {"message": "Unauthorized"}
 
 
 @app.get("/product/search")
@@ -160,3 +241,12 @@ async def headers(user_agent: Annotated[str | None, Header()] = None, accept_lan
 
 
 #uvicorn main:app --reload
+
+
+if __name__ == '__main__':
+    uvicorn.run(
+        "main:app",
+        host='localhost',
+        port=8000,
+        reload=True
+    )

@@ -1,4 +1,9 @@
-from pydantic import BaseModel, EmailStr, Field, PositiveFloat
+from pydantic import BaseModel, EmailStr, Field
+
+
+class TrueUser(BaseModel):
+    username: str
+    password: str
 
 
 class Login_User(BaseModel):
