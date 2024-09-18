@@ -4,6 +4,7 @@ from pydantic import BaseModel, EmailStr, Field
 class TrueUser(BaseModel):
     username: str
     password: str
+    role: str = 'guest'
 
 
 class Login_User(BaseModel):

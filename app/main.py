@@ -4,7 +4,7 @@ from re import match
 from fastapi import FastAPI, Form, Cookie, Response, Header, Depends, status, HTTPException
 from fastapi.responses import FileResponse
 from typing import Annotated
-from fastapi.security import HTTPBasic, HTTPBasicCredentials, OAuth2PasswordBearer
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 
 from models.models import User, Feedback, UserCreate, Login_User, TrueUser
@@ -65,7 +65,7 @@ list_create_user = []
 
 USER_DATA = [TrueUser(**{"username": "user1", "password": "pass1"}), TrueUser(**{"username": "user2", "password": "pass2"}), TrueUser(**{"username": "admin", "password": "adminpass"})]
 
-USERS_DATA = [{"username": "admin", "password": "adminpass"}]
+USERS_DATA = [{"username": "admin", "password": "adminpass", "role": "admin"}, {"username": "user", "password": "userpass", "role": "user"}, {"username": "guest", "password": "guestpass", "role": "guest"}]
 # def get_user_from_db(username: str):
 #     for user in USER_DATA:
 #         if user.username == username:
@@ -122,21 +122,61 @@ async def root():
     return FileResponse("app/index.html")
 
 
-# роут для аутентификации; так делать не нужно, это для примера - более корректный пример в следующем уроке
-@app.post("/login")
-async def login(user_in: TrueUser):
-    if authenticate_user(user_in.username, user_in.password):
-        return {"access_token": create_jwt_token({"sub": user_in.username}), "token_type": "bearer"}
-    return {"error": "Invalid credentials"}
+# Роут для получения JWT-токена (так работает логин)
+@app.post("/token")
+def login(user_data: Annotated[OAuth2PasswordRequestForm, Depends()]): # тут логинимся через форму
+    user_data_from_db = get_user(user_data.username)
+    if user_data_from_db is None or user_data.password != user_data_from_db['password']:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return {"access_token": create_jwt_token({"sub": user_data.username})} # тут мы добавляем полезную нагрузку в токен, и говорим, что "sub" содержит значение username
 
 
-# защищенный роут для получения информации о пользователе
-@app.get("/protected_resource")
-async def protected_resource(current_user: str = Depends(get_user_from_token)):
-    user = get_user(current_user)
-    if user:
-        return user
-    return {"error": "User not found"}
+# Защищенный роут для админов, когда токен уже получен
+@app.get("/admin")
+def get_admin_info(current_user: str = Depends(get_user_from_token)):
+    user_data = get_user(current_user)
+    if user_data['role'] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    return {"message": "Welcome Admin!"}
+
+
+# Защищенный роут для обычных пользователей, когда токен уже получен
+@app.get("/user")
+def get_user_info(current_user: str = Depends(get_user_from_token)):
+    user_data = get_user(current_user)
+    if user_data['role'] != "user":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    return {"message": "Hello User!"}
+
+
+@app.get("/guest")
+def get_guest_info(current_user: str = Depends(get_user_from_token)):
+    user_data = get_user(current_user)
+    if user_data['role'] != "guest":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    return {"message": "Hello Guest!"}
+
+
+
+# # роут для аутентификации; так делать не нужно, это для примера - более корректный пример в следующем уроке
+# @app.post("/login")
+# async def login(user_in: TrueUser):
+#     if authenticate_user(user_in.username, user_in.password):
+#         return {"access_token": create_jwt_token({"sub": user_in.username}), "token_type": "bearer"}
+#     return {"error": "Invalid credentials"}
+#
+#
+# # защищенный роут для получения информации о пользователе
+# @app.get("/protected_resource")
+# async def protected_resource(current_user: str = Depends(get_user_from_token)):
+#     user = get_user(current_user)
+#     if user:
+#         return user
+#     return {"error": "User not found"}
 
 
 # @app.get("/protected_resource/")
@@ -191,11 +231,11 @@ async def read_user(user_id: int):
     return {"error": "User not found"}
 
 
-@app.post("/user")
-async def user(user: User):
-    if user.age >= 18:
-        user.is_adult = True
-    return user
+# @app.post("/user")
+# async def user(user: User):
+#     if user.age >= 18:
+#         user.is_adult = True
+#     return user
 
 
 @app.post("/feedback")
