@@ -1,0 +1,4 @@
+CREATE TABLE to_do(id SERIAL PRIMARY KEY, title VARCHAR(300), description VARCHAR(300), completed BOOLEAN DEFAULT FALSE);
+
+
+INSERT INTO todo (title, description, completed) VALUES ('Buy groceries', 'Milk, eggs, bread', False);
