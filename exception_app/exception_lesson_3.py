@@ -15,12 +15,17 @@ class TrueUser(BaseModel):
 
 
 class UserNotFoundException(HTTPException):
-    def __init__(self, detail: str = 'Пользователь не найден в БД.', status_code: int = 400):
+    def __init__(self, detail: str = 'Пользователь не найден в БД.', status_code: int = 404):
         super().__init__(detail=detail, status_code=status_code)
 
 
 class InvalidUserDataException(HTTPException):
-    def __init__(self, detail: str = 'Некорректный формат входных данных пользователя.', status_code: int = 404):
+    def __init__(self, detail: str = 'Некорректный формат входных данных пользователя.', status_code: int = 400):
+        super().__init__(detail=detail, status_code=status_code)
+
+
+class UserExists(HTTPException):
+    def __init__(self, detail: str = 'Пользователь уже существует в БД.', status_code: int = 404):
         super().__init__(detail=detail, status_code=status_code)
 
 
@@ -32,6 +37,16 @@ USER_DATA = [
 
 
 app = FastAPI()
+
+
+@app.exception_handler(UserExists)
+async def user_exists(request, exc):
+    start_time = time.time()
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.detail,
+        headers={'X-ErrorHandleTime': str(time.time() - start_time)}
+    )
 
 
 @app.exception_handler(UserNotFoundException)
@@ -59,24 +74,37 @@ async def validation_exception_handler(request, exc):
     start_time = time.time()
     return JSONResponse(
         status_code=404,
-        content=f'Некорректный формат вводных данных для создания пользователя. Информация: {exc}',
+        content=f"Некорректный формат вводных данных для создания пользователя.",
         headers={'X-ErrorHandleTime': str(time.time() - start_time)}
     )
 
 
 @app.post("/user", response_model=TrueUser)
 async def create_user(user: TrueUser):
+    if user in USER_DATA:
+        raise UserExists()
     USER_DATA.append(user)
     return user
 
 
 @app.get("/users/{username}")
 async def get_user(username: str):
-    if not username.isalpha():
+    if username.isalpha() or username.isdigit():
         raise InvalidUserDataException()
     for user in USER_DATA:
         if user.username == username:
             return user
+    raise UserNotFoundException()
+
+
+@app.delete("/users/{username}")
+async def delete_user(username: str):
+    if username.isalpha() or username.isdigit():
+        raise InvalidUserDataException()
+    for user in USER_DATA:
+        if user.username == username:
+            USER_DATA.remove(user)
+            return {"message": "Пользователь успешно удален"}
     raise UserNotFoundException()
 
 
