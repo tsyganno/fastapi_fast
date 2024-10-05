@@ -1,5 +1,6 @@
 import uvicorn
 import time
+import random
 
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
@@ -15,7 +16,7 @@ class TrueUser(BaseModel):
 
 
 class UserNotFoundException(HTTPException):
-    def __init__(self, detail: str = 'Пользователь не найден в БД.', status_code: int = 404):
+    def __init__(self, detail: str = 'Пользователь не найден в БД.', status_code: int = 400):
         super().__init__(detail=detail, status_code=status_code)
 
 
@@ -25,7 +26,7 @@ class InvalidUserDataException(HTTPException):
 
 
 class UserExists(HTTPException):
-    def __init__(self, detail: str = 'Пользователь уже существует в БД.', status_code: int = 404):
+    def __init__(self, detail: str = 'Пользователь уже существует в БД.', status_code: int = 400):
         super().__init__(detail=detail, status_code=status_code)
 
 
@@ -37,6 +38,10 @@ USER_DATA = [
 
 
 app = FastAPI()
+
+
+def random_digit():
+    return random.random()
 
 
 @app.exception_handler(UserExists)
@@ -73,7 +78,7 @@ async def invalid_user_data_exception(request, exc):
 async def validation_exception_handler(request, exc):
     start_time = time.time()
     return JSONResponse(
-        status_code=404,
+        status_code=406,
         content=f"Некорректный формат вводных данных для создания пользователя.",
         headers={'X-ErrorHandleTime': str(time.time() - start_time)}
     )
@@ -81,10 +86,14 @@ async def validation_exception_handler(request, exc):
 
 @app.post("/user", response_model=TrueUser)
 async def create_user(user: TrueUser):
+    num = random_digit()
     if user in USER_DATA:
         raise UserExists()
-    USER_DATA.append(user)
-    return user
+    if num == 1:
+        USER_DATA.append(user)
+        return user
+    else:
+        return {"username": str(num), "password": str(num)}
 
 
 @app.get("/users/{username}")
